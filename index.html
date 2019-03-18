@@ -1,0 +1,394 @@
+<!doctype html>
+<html lang="en" class="h-100">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+	<title>CMOS Dashboard</title>
+
+	<!-- Bootstrap core CSS -->
+	<link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css" integrity="sha384-ggOyR0iXCbMQv3Xipma34MD+dH/1fQ784/j6cY/iJTQUOhcWr7x9JvoRxT2MZw1T" crossorigin="anonymous">
+	<style type="text/css">
+		#device-sidebar {
+			position: fixed;
+			left: 0;
+			top: 56px;
+			bottom: 60px;
+			width: 15%;
+			z-index: 2;
+			background-color: #f2f2f2;
+			padding: 5px;
+			border-right: 1px solid #000;
+		}
+		#log-container {
+			position: fixed;
+			right: 0;
+			top: 56px;
+			bottom: 60px;
+			padding: 5px;
+			width: 85%;
+			z-index: 1;
+			overflow: auto;
+			background-color: #dcdcdc;
+		}
+		.command-container {
+			position: fixed;
+			left: 0;
+			right: 0;
+			bottom: 0;
+			height: 60px;
+			z-index: 1;
+			padding: 10px;
+			border-top: 1px solid #000;
+		}
+		.device_id_selector {
+			display: block;
+			background-color: #fff;
+			padding: 5px;
+			border-radius: 5px;
+			border: 1px solid;
+			text-decoration: none !important;
+			text-align: center;
+		}
+		.device_id_selector  + .device_id_selector {
+			margin-top: 5px;
+		}
+		.device_id_selector.selected {
+			background-color: #c7ffc9;
+		}
+
+		.log_row {
+			display: block;
+			background-color: #f2f2f2;
+			padding: 5px;
+			border-radius: 5px;
+			margin: 0;
+			font-size: 14px;
+
+			-ms-word-break: break-all;
+			word-break: break-all;
+
+			/* Non standard for webkit */
+			word-break: break-word;
+
+			-webkit-hyphens: auto;
+			-moz-hyphens: auto;
+			-ms-hyphens: auto;
+			hyphens: auto;
+		}
+		.log_row + .log_row {
+			margin-top: 5px;
+		}
+		.log_row span {
+			margin-left: 5px;
+			margin-right: 10px;
+		}
+	</style>
+</head>
+<body>
+	<header>
+		<!-- Fixed navbar -->
+		<nav class="navbar navbar-expand-md navbar-dark bg-dark">
+			<a class="navbar-brand" href="/">CMOS GPS Debugger</a>
+			<button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarCollapse" aria-controls="navbarCollapse" aria-expanded="false" aria-label="Toggle navigation">
+				<span class="navbar-toggler-icon"></span>
+			</button>
+
+			<button id="btn_clear_logs" class="btn btn-sm btn-success ml-md-auto">Clear Logs</button>
+			<button id="btn_downoad_logs" class="btn btn-sm btn-success ml-3">Download Logs</button>
+		</nav>
+	</header>
+
+	<!-- Begin page content -->
+	<main role="main" class="main-content">
+		<div id="device-sidebar"></div>
+		<div id="log-container"></div>
+		<div class="command-container">
+			<div class="row">
+				<div class="col-sm-3">
+					<input class="form-control w-50 d-inline" type="text" value="7001" id="input_port" placeholder="port">
+					<button id="btn_connect_port" class="btn btn-primary d-inline">Connect</button>
+				</div>
+				<div class="col-sm-8">
+				<form id="form_send_message">
+					<input class="form-control w-75 d-inline" type="text" id="input_command" placeholder="command">
+					<button type="submit" id="btn_send_message" class="btn btn-primary d-inline disabled">Send</button>
+				</form>
+				</div>
+			</div>
+		</div>
+	</main>
+
+	<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
+	<script src="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/js/bootstrap.min.js" integrity="sha384-JjSmVgyd0p3pXB1rRibZUAYoIIy6OrQ6VrjIEaFf/nJGzIxFDsf4x0xIM+B07jRM" crossorigin="anonymous"></script>
+	<script type="text/javascript" src="ws2s-2.1.3.js"></script>
+	<script type="text/javascript">
+		var data = {
+			socket: null,
+			server_ip: "52.66.52.237",
+			server_port: 7001,
+			server_connected: false,
+			device: "",
+			device_list: [],
+			device_logs: []
+		};
+
+		var target = {
+			btn_connect_port: $("#btn_connect_port"),
+			btn_send_message: $("#btn_send_message"),
+			form_send_message: $("#form_send_message"),
+			btn_clear_logs: $("#btn_clear_logs"),
+			btn_downoad_logs: $("#btn_downoad_logs"),
+
+			input_port: $("#input_port"),
+			input_command: $("#input_command"),
+
+			device_id_container: $("#device-sidebar"),
+			log_container: $("#log-container"),
+		};
+
+		function manageState(flag) {
+			switch(flag.action) {
+				case "server_connected":
+					console.log("server_connected");
+					if(window.get_devices_timer)
+						clearInterval(window.get_devices_timer);
+					window.get_devices_timer = setInterval(function(){
+						data.socket.send("{\"action\":\"get_devices\"}");
+					}, 5e3);
+					data.server_connected = true;
+					break;
+				case "server_error":
+					console.log("server_disconnected");
+					if(window.get_devices_timer)
+						clearInterval(window.get_devices_timer);
+					alert("Socket Error Occurred.");
+					data.server_connected = false;
+					break;
+				case "server_disconnected":
+					console.log("server_disconnected");
+					if(window.get_devices_timer)
+						clearInterval(window.get_devices_timer);
+					alert("Socket Disconnected.");
+					data.server_connected = false;
+					break;
+				case "select_device":
+					data.device_logs = [];
+					data.device = flag.device;
+					if(data.server_connected)
+						data.socket.send(JSON.stringify({
+							"action": "set_device_imei",
+							"device_imei": flag.device+""
+						}));
+					else
+						alert("Server Not Connected.");
+					break;
+				case "clear_logs":
+					data.device_logs = [];
+					break;
+				case "send_message":
+					let cmd = target.input_command.val().trim();
+					if(cmd === "") {
+						alert("Please enter a valid command.");
+					}
+					else if( !data.device_list.includes(data.device) ) {
+						alert("Device not connected.");
+					}
+					else {
+						data.socket.send(JSON.stringify({
+							"action": "send_message",
+							"message": cmd
+						}));
+						target.input_command.val("");
+					}
+					break;
+			}
+			updateView();
+		}
+
+		function updateView() {
+			if(data.server_connected) {
+				target.btn_connect_port.text("Disconnect");
+				target.btn_send_message.removeClass("disabled");
+			}
+			else {
+				target.btn_connect_port.text("Connect");
+				target.btn_send_message.addClass("disabled");
+			}
+
+			var temp = "";
+			if(data.device_list.length) {
+				data.device_list.forEach(d=> {
+					temp += `<a
+								href="#"
+								${
+									d === data.device ?
+									'class="device_id_selector selected"' :
+									'class="device_id_selector"'
+								}
+							>${d}</a>`;
+				});
+			}
+			else {
+				temp = "No devices found.";
+			}
+			target.device_id_container.html(temp);
+
+			temp = "";
+			if(data.device_logs.length) {
+				for (var i = data.device_logs.length - 1; i >= 0; i--) {
+					if(data.device_logs[i].msg)
+						temp += `<p class="log_row">
+									<span>${String(new Date(data.device_logs[i].time)).substring(0, 24)}</span>
+									${data.device_logs[i].msg}
+								</p>`;
+				}
+			}
+			else {
+				temp = "No Logs received yet.";
+			}
+			target.log_container.html(temp);
+		}
+
+
+		function handleReceivedData(str){
+			console.log("handleReceivedData: ", str);
+
+			if( !str.startsWith("{") ) {
+				console.log("unable to handle data: ", str);
+				return;
+			}
+
+			var msg = JSON.parse(str);
+
+			switch(msg.action) {
+				/*{
+					action: "devices",
+					devices: [ *arr of device ids* ]
+				}*/
+				case "devices":
+					data.device_list = msg.devices;
+					break;
+				/*{
+					action: "messages",
+					device_imei: imei,
+					messages: resp_msg_arr
+				}*/
+				case "messages":
+					if(String(data.device) === String(msg.device_imei)) {
+						data.device_logs.push( ...(msg.messages) );
+					}
+					break;
+			}
+			console.log("updateView");
+			updateView();
+		}
+
+		function getSocket() {
+			var socket = new WS2S("wss://ws2s.feling.io/").newSocket();
+
+			socket.onReady = () => {
+				// connection to ws2s server is open,
+				// socket is ready to use, now you can call socket.connect() method
+				socket.connect(data.server_ip, data.server_port);
+				console.log('Socket Ready');
+			};
+
+			socket.onOpen = () => {
+			    // socket.connect() is done,
+			    // socket is ready to for send data. now you can call socket.send() method
+			    console.log('onOpen');
+			    manageState({ action: "server_connected" });
+			};
+
+			socket.onRecv = (bytes) => {
+			    // bytes is an Uint8Array
+			    var str = new TextDecoder("utf-8").decode(bytes);
+			    handleReceivedData(str);
+			};
+
+			socket.onClose = () => {
+				console.log('onClose');
+				manageState({ action: "server_disconnected" });
+			};
+
+			socket.onError = (error) => {
+				console.log('onError', error)
+				manageState({ action: "socket_error", error: error });
+			};
+
+			return socket;
+		}
+
+		target.btn_connect_port.on('click', function(e){
+			if(e) {
+				e.preventDefault();
+				e.stopPropagation();
+			}
+			data.server_port = Number( $("#input_port").val() );
+
+			if(data.socket)
+				data.socket.close();
+			else
+				data.socket = getSocket();
+		});
+
+		target.device_id_container.on('click', '.device_id_selector', function(e){
+			if(e) {
+				e.preventDefault();
+				e.stopPropagation();
+			}
+			if( String(data.device) === $(this).text() )
+				return;
+			$('.device_id_selector').removeClass('selected');
+			$(this).addClass('selected');
+			manageState({ action: "select_device", device: $(this).text() });
+		});
+
+		target.btn_clear_logs.on('click', function(e){
+			if(e) {
+				e.preventDefault();
+				e.stopPropagation();
+			}
+			manageState({ action: "clear_logs" });
+		});
+
+		target.btn_send_message.on('click', function(e){
+			if(e) {
+				e.preventDefault();
+				e.stopPropagation();
+			}
+			manageState({ action: "send_message" });
+		});
+
+		target.form_send_message.on('submit', function(e){
+			console.log("called");
+			if(e) {
+				e.preventDefault();
+				e.stopPropagation();
+			}
+			manageState({ action: "send_message" });
+		});
+
+		target.btn_downoad_logs.on('click', function(e){
+			if(e) {
+				e.preventDefault();
+				e.stopPropagation();
+			}
+
+			var text_data = data.device_logs
+						.map(d => {
+							return `${String(new Date(d.time)).substring(0, 24)} - ${d.msg}\r\n`;
+						})
+						.join('');
+			let a = document.createElement('a');
+			a.setAttribute('href', 'data:text/plain;charset=UTF-8,' + encodeURIComponent(text_data));
+			a.setAttribute('download', "device logs - "+ String(new Date()).substring(0, 24) +".txt");
+			a.style.display = 'none';
+			document.body.appendChild(a);
+			a.click();
+			document.body.removeChild(a);
+		});
+
+	</script>
+</body>
+</html>
