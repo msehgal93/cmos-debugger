@@ -158,7 +158,7 @@
 					data.server_connected = true;
 					break;
 				case "server_error":
-					console.log("server_disconnected");
+					console.log("server_error");
 					if(window.get_devices_timer)
 						clearInterval(window.get_devices_timer);
 					alert("Socket Error Occurred.");
@@ -279,7 +279,6 @@
 					}
 					break;
 			}
-			console.log("updateView");
 			updateView();
 		}
 
@@ -361,7 +360,6 @@
 		});
 
 		target.form_send_message.on('submit', function(e){
-			console.log("called");
 			if(e) {
 				e.preventDefault();
 				e.stopPropagation();
